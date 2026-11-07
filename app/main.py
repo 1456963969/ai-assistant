@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from app.agent_graph import run_agent
 from app.llm import generate
 from app.memory import Memory
 from app.retriever import HybridRetriever
@@ -43,18 +44,35 @@ class Question(BaseModel):
     query: str
     session_id: str = "default"
     top_k: int = 5
+    mode: str = "fast"   # fast：规则路由单次响应；agent：LangGraph ReAct 自主规划
 
 
 class Answer(BaseModel):
     answer: str
-    route: str          # direct / knowledge / web / none
+    route: str          # direct / knowledge / web / none / agent
     model: str          # 实际使用的模型（降级时标识）
     sources: list
+    steps: list = []    # agent 模式下 ReAct 的工具调用轨迹
 
 
 @app.post("/chat", response_model=Answer)
 def chat(q: Question):
-    r, m = get_retriever(), get_memory()
+    m = get_memory()
+    history = m.short_history(q.session_id)
+
+    # ---- 慢通道：LangGraph ReAct，模型自主规划多步工具调用 ----
+    if q.mode == "agent":
+        try:
+            answer, trace = run_agent(q.query, history)
+            m.add(q.session_id, "user", q.query)
+            m.add(q.session_id, "assistant", answer)
+            return Answer(answer=answer, route="agent",
+                          model="qwen-plus（ReAct）", sources=[], steps=trace)
+        except Exception:
+            pass  # Agent 链路异常时降级回规则路由，保障可用性
+
+    # ---- 快通道：规则路由，单次响应 ----
+    r = get_retriever()
     route, payload = decide(r, q.query)
 
     if route == "direct":
@@ -73,14 +91,13 @@ def chat(q: Question):
         context_note = "（知识库与联网均无可用内容，请如实告知用户）"
         sources = []
 
-    history = m.short_history(q.session_id)
     answer, model_used = generate(
         SYSTEM_PROMPT.format(context_note=context_note), q.query, history
     )
     m.add(q.session_id, "user", q.query)
     m.add(q.session_id, "assistant", answer)
 
-    return Answer(answer=answer, route=route, model=model_used, sources=sources)
+    return Answer(answer=answer, route=route, model=model_used, sources=sources, steps=[])
 
 
 @app.get("/history/{session_id}")

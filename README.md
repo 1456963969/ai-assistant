@@ -39,6 +39,7 @@ Router 路由判断：闲聊问候 → 直接回复
 | 双层记忆 | 短期记忆基于 **Redis**（List + LTRIM 保留近 6 轮，24h 过期，Redis 不可用自动降级进程内 deque）；长期记忆经 **SQLAlchemy** 落库（默认 SQLite，配 `DATABASE_URL` 即切 **MySQL/PostgreSQL**，业务代码零改动） |
 | 多源文档接入 | **Unstructured** 统一解析 HTML/DOC/PPTX/XLSX/CSV/EML 等格式 + 原生 PDF / Word / Markdown 解析 + 网页 URL 抓取（`python app/ingest.py --url https://...`），Embedding 可切换 text-embedding-v2 或 BGE-M3（SiliconFlow） |
 | Tool 工具化 | 知识库检索与联网搜索封装为 LangChain @tool 标准工具（app/tools.py），可无缝接入 LangGraph 等 Agent 编排扩展 |
+| **LangGraph ReAct 快慢双通道** | `/chat` 默认 `mode=fast` 走规则路由单次响应（低延迟低成本）；`mode=agent` 进入 **LangGraph ReAct 循环**，由模型自主规划调用哪些工具、调用几次（Reason → Act → Observe），响应中返回 `steps` 工具调用轨迹；Agent 链路异常自动降级回规则路由 |
 
 ## 快速开始
 
@@ -84,8 +85,22 @@ POST /chat
  "sources": [{"ref": 1, "doc": "健康作息指南.txt"}]}
 ```
 
+**Agent 模式（ReAct 自主规划）：**
+
+```json
+POST /chat
+{"query": "献血的间隔要求是什么？", "session_id": "u2", "mode": "agent"}
+
+{"answer": "全血献血间隔不少于6个月；单采血小板间隔不少于2周 [1]...",
+ "route": "agent",
+ "model": "qwen-plus（ReAct）",
+ "steps": ["knowledge_base_search"]}
+```
+
+`steps` 即模型本次自主决定的工具调用轨迹；闲聊类问题轨迹为空（模型判断无需调工具）。
+
 知识库未命中且未配置联网时，回答「知识库中未找到相关内容」，不编造。
 
 ## 技术栈
 
-Python · FastAPI · LangChain · FAISS/Milvus · rank_bm25 · BGE-Reranker · qwen-plus/DeepSeek · Tavily · SQLAlchemy · MySQL · Redis · Unstructured
+Python · FastAPI · LangChain · **LangGraph(ReAct)** · FAISS/Milvus · rank_bm25 · BGE-Reranker · qwen-plus/DeepSeek · Tavily · SQLAlchemy · MySQL · Redis · Unstructured · Docker Compose
