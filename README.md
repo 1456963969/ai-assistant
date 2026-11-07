@@ -18,8 +18,8 @@ Router 路由判断：闲聊问候 → 直接回复
          BM25 关键词检索 ──────────┤→ RRF 融合 → BGE-Reranker 精排 → Top-5
    │
    ▼
-双层记忆：短期（近 6 轮对话上下文）
-         长期（PostgreSQL/SQLite 持久化全部会话）
+双层记忆：短期（Redis，近 6 轮对话上下文，不可用时降级进程内）
+         长期（MySQL/PostgreSQL/SQLite，SQLAlchemy 持久化全部会话）
    │
    ▼
 答案生成：qwen-plus（主模型）→ 异常自动降级 deepseek-chat
@@ -36,8 +36,8 @@ Router 路由判断：闲聊问候 → 直接回复
 | 混合检索 | FAISS/Milvus 向量检索 + BM25 关键词检索，RRF 倒数排名融合 |
 | 重排序 | 可选接入 SiliconFlow BGE-Reranker-v2-M3，对召回片段相关性精排 |
 | 模型降级 | 主模型 qwen-plus 调用异常（超时/限流）自动切换 deepseek-chat 兜底 |
-| 双层记忆 | 短期记忆维持近 6 轮上下文；长期记忆经 SQLAlchemy 落库（默认 SQLite，配 DATABASE_URL 即切 PostgreSQL） |
-| 多源文档接入 | 支持 PDF / Word / Markdown / 网页 URL（`python app/ingest.py --url https://...`），Embedding 可切换 text-embedding-v2 或 BGE-M3（SiliconFlow） |
+| 双层记忆 | 短期记忆基于 **Redis**（List + LTRIM 保留近 6 轮，24h 过期，Redis 不可用自动降级进程内 deque）；长期记忆经 **SQLAlchemy** 落库（默认 SQLite，配 `DATABASE_URL` 即切 **MySQL/PostgreSQL**，业务代码零改动） |
+| 多源文档接入 | **Unstructured** 统一解析 HTML/DOC/PPTX/XLSX/CSV/EML 等格式 + 原生 PDF / Word / Markdown 解析 + 网页 URL 抓取（`python app/ingest.py --url https://...`），Embedding 可切换 text-embedding-v2 或 BGE-M3（SiliconFlow） |
 | Tool 工具化 | 知识库检索与联网搜索封装为 LangChain @tool 标准工具（app/tools.py），可无缝接入 LangGraph 等 Agent 编排扩展 |
 
 ## 快速开始
@@ -60,6 +60,17 @@ python -m uvicorn app.main:app --reload
 - `SILICONFLOW_API_KEY`：启用 BGE-Reranker 精排 / BGE-M3 Embedding（siliconflow.cn 免费注册）
 - `VECTOR_STORE=milvus` + `MILVUS_URI`：向量库切换为 Milvus（默认 FAISS）
 - `EMBEDDING_PROVIDER=siliconflow`：Embedding 切换为 BAAI/bge-m3
+- `REDIS_URL`：短期记忆接入 Redis（默认降级为进程内记忆，零配置可跑）
+- `DATABASE_URL`：长期记忆数据库，默认 SQLite；生产建议 MySQL/PostgreSQL
+
+**一键拉起 MySQL + Redis（可选）：**
+
+```bash
+docker compose up -d      # 启动 assistant-mysql(3306) + assistant-redis(6379)
+# 然后在 .env 中配置：
+# DATABASE_URL=mysql+pymysql://assistant:assistant123@localhost:3306/assistant
+# REDIS_URL=redis://localhost:6379/0
+```
 
 ## 接口示例
 
@@ -77,4 +88,4 @@ POST /chat
 
 ## 技术栈
 
-Python · FastAPI · LangChain · FAISS/Milvus · rank_bm25 · BGE-Reranker · qwen-plus/DeepSeek · Tavily · SQLAlchemy
+Python · FastAPI · LangChain · FAISS/Milvus · rank_bm25 · BGE-Reranker · qwen-plus/DeepSeek · Tavily · SQLAlchemy · MySQL · Redis · Unstructured

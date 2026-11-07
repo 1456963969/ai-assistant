@@ -13,6 +13,11 @@ pypdf>=4.0.0
 docx2txt>=0.8
 beautifulsoup4>=4.12
 sqlalchemy>=2.0
+pymysql>=1.1.0
+cryptography>=42.0.0
+redis>=5.0.0
+unstructured>=0.15.0
+python-magic-bin>=0.4.14; sys_platform == "win32"
 tavily-python>=0.5.0
 httpx
 numpy

@@ -5,8 +5,9 @@ import sys
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from langchain_community.document_loaders import TextLoader, PyPDFLoader
-from langchain_community.document_loaders import Docx2txtLoader, WebBaseLoader
+from langchain_community.document_loaders import (
+    TextLoader, PyPDFLoader, Docx2txtLoader, WebBaseLoader, UnstructuredFileLoader,
+)
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
@@ -30,6 +31,8 @@ def load_documents(urls=None):
             loader = PyPDFLoader(path)  # PDF：按页解析，保留页码元数据
         elif name.endswith(".docx"):
             loader = Docx2txtLoader(path)  # Word：文本抽取
+        elif name.endswith((".doc", ".html", ".htm", ".eml", ".pptx", ".xlsx", ".csv", ".rtf")):
+            loader = UnstructuredFileLoader(path, mode="single")  # 其他格式交给 Unstructured 统一解析
         else:
             continue
         docs.extend(loader.load())
